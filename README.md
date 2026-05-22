@@ -42,8 +42,11 @@ vidsplash [flags] INPUT_VIDEO SPLASH_IMAGE OUTPUT_VIDEO
 | `-b, --bg-color` | `black` | Background color behind the image (any ffmpeg color string) |
 | `--video-fade-in` | `0` | Fade-in the main video (seconds, 0 = off) |
 | `--video-fade-out` | `0` | Fade-out the main video (seconds, 0 = off) |
+| `--no-audio-fade` | | Disable audio fade in/out on the main video |
 | `--overwrite` | | Overwrite output if it exists |
 | `-v, --verbose` | | Print raw ffmpeg output instead of TUI |
+| `--ffmpeg` | `ffmpeg` | Path to ffmpeg binary |
+| `--ffprobe` | `ffprobe` | Path to ffprobe binary |
 
 ### Examples
 
