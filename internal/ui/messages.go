@@ -2,25 +2,13 @@ package ui
 
 import "time"
 
+// StageID indexes into the stage list a verb registers via New.
 type StageID int
-
-const (
-	StageProbe   StageID = 0
-	StageSplash  StageID = 1
-	StageConcat  StageID = 2
-	stageCount           = 3
-)
-
-var stageLabels = [stageCount]string{
-	"Probing video",
-	"Building splash",
-	"Concatenating",
-}
 
 type StageStartMsg struct{ Stage StageID }
 type StageDoneMsg struct {
-	Stage    StageID
-	Elapsed  time.Duration
+	Stage   StageID
+	Elapsed time.Duration
 }
 type StageErrorMsg struct {
 	Stage StageID
@@ -33,11 +21,16 @@ type ProgressMsg struct {
 	FPS           float64
 	Speed         string
 }
+
+// StatItem is a single labeled value shown in the completion summary.
+type StatItem struct {
+	Label string
+	Value string
+}
+
 type SummaryMsg struct {
-	InputDuration  float64
-	SplashDuration float64
-	OutputDuration float64
-	OutputSize     int64
-	OutputPath     string
+	Stats      []StatItem
+	OutputSize int64
+	OutputPath string
 }
 type tickMsg time.Time

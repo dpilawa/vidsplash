@@ -25,7 +25,9 @@ type stageData struct {
 
 // Model is the Bubbletea model for the vidsplash TUI.
 type Model struct {
-	stages      [stageCount]stageData
+	title       string
+	labels      []string
+	stages      []stageData
 	spinner     spinner.Model
 	progressBar progress.Model
 	currentPct  float64
@@ -36,8 +38,8 @@ type Model struct {
 	err         error
 }
 
-// New creates a fresh Model.
-func New() Model {
+// New creates a fresh Model with the given title and ordered stage labels.
+func New(title string, labels []string) Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = spinnerStyle
@@ -49,6 +51,9 @@ func New() Model {
 	)
 
 	return Model{
+		title:       title,
+		labels:      labels,
+		stages:      make([]stageData, len(labels)),
 		spinner:     s,
 		progressBar: p,
 	}

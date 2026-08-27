@@ -95,7 +95,7 @@ func buildArgs(opts Options, p *probe.Result, filterComplex string, mapArgs []st
 		"-c:v", encoder,
 		"-preset", "fast",
 		"-pix_fmt", "yuv420p",
-		"-vsync", "cfr",
+		"-fps_mode", "cfr",
 	)
 	if p.HasAudio {
 		args = append(args,

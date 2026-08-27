@@ -28,10 +28,10 @@ func (m Model) View() string {
 
 	var sb strings.Builder
 
-	sb.WriteString(titleStyle.Render("vidsplash") + "  " + dimStyle.Render(strings.Repeat("─", 38)) + "\n\n")
+	sb.WriteString(titleStyle.Render(m.title) + "  " + dimStyle.Render(strings.Repeat("─", 38)) + "\n\n")
 
-	for i := StageID(0); i < stageCount; i++ {
-		sb.WriteString(m.stageRow(i))
+	for i := range m.labels {
+		sb.WriteString(m.stageRow(StageID(i)))
 		sb.WriteString("\n")
 	}
 
@@ -41,7 +41,7 @@ func (m Model) View() string {
 
 func (m Model) stageRow(id StageID) string {
 	s := m.stages[id]
-	label := labelStyle.Render(stageLabels[id])
+	label := labelStyle.Render(m.labels[id])
 
 	switch s.state {
 	case stageDone:
@@ -68,7 +68,7 @@ func (m Model) stageRow(id StageID) string {
 
 	default: // pending
 		icon := pendingStyle.Render("·")
-		return fmt.Sprintf("  %s  %s", icon, pendingStyle.Render(stageLabels[id]))
+		return fmt.Sprintf("  %s  %s", icon, pendingStyle.Render(m.labels[id]))
 	}
 }
 
@@ -76,26 +76,28 @@ func (m Model) summaryView() string {
 	sum := m.summary
 	var sb strings.Builder
 
-	sb.WriteString(titleStyle.Render("vidsplash") + "  " + dimStyle.Render(strings.Repeat("─", 38)) + "\n\n")
+	sb.WriteString(titleStyle.Render(m.title) + "  " + dimStyle.Render(strings.Repeat("─", 38)) + "\n\n")
 
-	for i := StageID(0); i < stageCount; i++ {
+	for i := range m.labels {
 		s := m.stages[i]
 		icon := doneStyle.Render("✓")
-		label := labelStyle.Render(stageLabels[i])
+		label := labelStyle.Render(m.labels[i])
 		elapsed := dimStyle.Render(fmt.Sprintf("%5.1fs", s.elapsed.Seconds()))
 		sb.WriteString(fmt.Sprintf("  %s  %s  %s\n", icon, label, elapsed))
 	}
 
 	sb.WriteString("\n")
 
-	sb.WriteString(fmt.Sprintf("  %s  %s    %s  %s    %s  %s\n",
-		boldStyle.Render("Input "), valueStyle.Render(formatDuration(sum.InputDuration)),
-		boldStyle.Render("Splash"), valueStyle.Render(formatDuration(sum.SplashDuration)),
-		boldStyle.Render("Output"), valueStyle.Render(formatDuration(sum.OutputDuration)),
-	))
+	var statParts []string
+	for _, st := range sum.Stats {
+		statParts = append(statParts, fmt.Sprintf("%s  %s", boldStyle.Render(st.Label), valueStyle.Render(st.Value)))
+	}
+	if len(statParts) > 0 {
+		sb.WriteString("  " + strings.Join(statParts, "    ") + "\n")
+	}
 	sb.WriteString(fmt.Sprintf("  %s  %s   →  %s\n",
 		boldStyle.Render("Size  "),
-		valueStyle.Render(formatSize(sum.OutputSize)),
+		valueStyle.Render(FormatSize(sum.OutputSize)),
 		dimStyle.Render(sum.OutputPath),
 	))
 	sb.WriteString("\n")
@@ -103,7 +105,8 @@ func (m Model) summaryView() string {
 	return sb.String()
 }
 
-func formatDuration(secs float64) string {
+// FormatDuration renders seconds as m:ss or h:mm:ss, for use in verb summaries.
+func FormatDuration(secs float64) string {
 	d := time.Duration(secs * float64(time.Second))
 	h := int(d.Hours())
 	m := int(d.Minutes()) % 60
@@ -114,7 +117,8 @@ func formatDuration(secs float64) string {
 	return fmt.Sprintf("%d:%02d", m, s)
 }
 
-func formatSize(bytes int64) string {
+// FormatSize renders a byte count as a human-readable string.
+func FormatSize(bytes int64) string {
 	switch {
 	case bytes >= 1<<30:
 		return fmt.Sprintf("%.1f GB", float64(bytes)/float64(1<<30))

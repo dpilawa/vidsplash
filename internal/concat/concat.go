@@ -3,7 +3,10 @@ package concat
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/dpilawa/vidsplash/internal/ffmpeg"
 	"github.com/dpilawa/vidsplash/internal/probe"
@@ -189,4 +192,130 @@ func mapArgsFor(hasAudio bool) []string {
 		return []string{"-map", "[vout]", "-map", "[aout]"}
 	}
 	return []string{"-map", "[vout]"}
+}
+
+// NormalizeVideoOptions configures re-encoding one source clip to a common
+// target format so it can be losslessly joined with other normalized
+// segments (see RunDemuxer).
+type NormalizeVideoOptions struct {
+	VideoPath  string
+	OutputPath string
+	Duration   float64 // the source clip's own duration, for fade-out timing
+	HasAudio   bool    // whether the source clip itself carries an audio stream
+	FadeIn     float64
+	FadeOut    float64
+	BGColor    string
+	FFmpegPath string
+}
+
+// NormalizeVideo re-encodes a video clip to target's resolution, frame rate,
+// and audio format. Every clip normalized against the same target can then
+// be joined via RunDemuxer with a lossless stream copy.
+func NormalizeVideo(ctx context.Context, target *probe.Result, opts NormalizeVideoOptions, runner ffmpeg.Runner, onProgress func(ffmpeg.ProgressEvent)) error {
+	vf := fmt.Sprintf(
+		"scale=%d:%d:force_original_aspect_ratio=decrease,"+
+			"pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=%s,"+
+			"setsar=1,fps=%s",
+		target.Width, target.Height,
+		target.Width, target.Height,
+		opts.BGColor,
+		target.FPS,
+	)
+	if opts.FadeIn > 0 {
+		vf += fmt.Sprintf(",fade=t=in:st=0:d=%.3f", opts.FadeIn)
+	}
+	if fadeOutStart := opts.Duration - opts.FadeOut; opts.FadeOut > 0 && fadeOutStart > 0 {
+		vf += fmt.Sprintf(",fade=t=out:st=%.3f:d=%.3f", fadeOutStart, opts.FadeOut)
+	}
+
+	filterComplex := fmt.Sprintf("[0:v]%s[vout]", vf)
+	mapArgs := []string{"-map", "[vout]"}
+	args := []string{"-y", "-i", opts.VideoPath}
+
+	if target.HasAudio {
+		if opts.HasAudio {
+			af := fmt.Sprintf("aresample=%s,aformat=channel_layouts=%s:sample_fmts=%s", target.SampleRate, target.ChannelLayout, target.SampleFmt)
+			if opts.FadeIn > 0 {
+				af += fmt.Sprintf(",afade=t=in:st=0:d=%.3f", opts.FadeIn)
+			}
+			if fadeOutStart := opts.Duration - opts.FadeOut; opts.FadeOut > 0 && fadeOutStart > 0 {
+				af += fmt.Sprintf(",afade=t=out:st=%.3f:d=%.3f", fadeOutStart, opts.FadeOut)
+			}
+			filterComplex += fmt.Sprintf(";[0:a]%s[aout]", af)
+		} else {
+			// Source has no audio: synthesize silence trimmed to the clip's duration.
+			args = append(args, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=channel_layout=%s:sample_rate=%s", target.ChannelLayout, target.SampleRate))
+			filterComplex += fmt.Sprintf(";[1:a]atrim=duration=%.3f[aout]", opts.Duration)
+		}
+		mapArgs = append(mapArgs, "-map", "[aout]")
+	}
+
+	args = append(args, "-filter_complex", filterComplex)
+	args = append(args, mapArgs...)
+	args = append(args,
+		"-c:v", "libx264",
+		"-preset", "fast",
+		"-pix_fmt", "yuv420p",
+		"-fps_mode", "cfr",
+	)
+	if target.HasAudio {
+		args = append(args,
+			"-c:a", "aac",
+			"-ar", target.SampleRate,
+			"-ac", strconv.Itoa(target.Channels),
+		)
+	}
+	args = append(args, "-progress", "pipe:1", opts.OutputPath)
+
+	return runner.Run(ctx, args, onProgress)
+}
+
+// RunDemuxer joins pre-normalized segments (matching codec, resolution, and
+// audio format) via the ffmpeg concat demuxer using a lossless stream copy.
+func RunDemuxer(ctx context.Context, segmentPaths []string, outputPath string, overwrite bool, runner ffmpeg.Runner, onProgress func(ffmpeg.ProgressEvent)) error {
+	listFile, cleanup, err := writeConcatList(segmentPaths)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	overwriteFlag := "-n"
+	if overwrite {
+		overwriteFlag = "-y"
+	}
+
+	args := []string{
+		overwriteFlag,
+		"-f", "concat",
+		"-safe", "0",
+		"-i", listFile,
+		"-c", "copy",
+		"-progress", "pipe:1",
+		outputPath,
+	}
+	return runner.Run(ctx, args, onProgress)
+}
+
+func writeConcatList(paths []string) (string, func(), error) {
+	f, err := os.CreateTemp("", "vidsplash-concat-list-*.txt")
+	if err != nil {
+		return "", nil, fmt.Errorf("creating concat list: %w", err)
+	}
+	defer f.Close()
+
+	for _, p := range paths {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			os.Remove(f.Name())
+			return "", nil, fmt.Errorf("resolving path %q: %w", p, err)
+		}
+		escaped := strings.ReplaceAll(abs, "'", "'\\''")
+		if _, err := fmt.Fprintf(f, "file '%s'\n", escaped); err != nil {
+			os.Remove(f.Name())
+			return "", nil, fmt.Errorf("writing concat list: %w", err)
+		}
+	}
+
+	path := f.Name()
+	return path, func() { os.Remove(path) }, nil
 }
