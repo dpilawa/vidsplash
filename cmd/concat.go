@@ -26,6 +26,7 @@ var (
 	flagConcatWidth    int
 	flagConcatHeight   int
 	flagConcatFPS      string
+	flagConcatNoAudio  bool
 )
 
 var concatCmd = &cobra.Command{
@@ -46,6 +47,7 @@ func init() {
 	concatCmd.Flags().IntVar(&flagConcatWidth, "width", 0, "Target width (defaults to the first video item's width)")
 	concatCmd.Flags().IntVar(&flagConcatHeight, "height", 0, "Target height (defaults to the first video item's height)")
 	concatCmd.Flags().StringVar(&flagConcatFPS, "fps", "", "Target frame rate, e.g. 30/1 (defaults to the first video item's fps)")
+	concatCmd.Flags().BoolVar(&flagConcatNoAudio, "no-audio", false, "Strip audio from the output")
 }
 
 // concatItem is the internal, resolved representation of one thing to
@@ -236,6 +238,9 @@ func concatPipeline(ctx context.Context, r Reporter, items []concatItem, targetO
 	if err != nil {
 		r.StageError(concatStageProbe, err)
 		return err
+	}
+	if flagConcatNoAudio {
+		target.HasAudio = false
 	}
 	r.StageDone(concatStageProbe, time.Since(t0))
 

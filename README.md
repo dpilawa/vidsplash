@@ -104,6 +104,7 @@ vidsplash concat --config concat.json -o output.mp4
 | `-b, --bg-color` | `black` | Default background/pad color |
 | `--width`, `--height` | | Target resolution (defaults to the first video item's) |
 | `--fps` | | Target frame rate, e.g. `30/1` (defaults to the first video item's) |
+| `--no-audio` | | Strip audio from the output |
 
 ```bash
 # Simple: videos and images positionally, images use --image-duration
@@ -175,10 +176,13 @@ vidsplash caption INPUT_VIDEO -o OUTPUT_VIDEO --config captions.json
 | `--start`, `--end` | | Explicit timing mode (seconds) |
 | `--every`, `--duration` | | Interval mode: repeat every N seconds, shown for `--duration` seconds |
 | `--count` | `0` | Number of repeats for interval mode (0 = until the video ends) |
-| `--preset` | `caption-bar` | `caption-bar`, `centered-pill`, or `top-banner` |
+| `--preset` | `caption-bar` | `caption-bar`, `centered-pill`, `top-banner`, `hook`, or `pop` |
 | `--fade` | `0.3` | Fade in/out duration in seconds, 0 = no fade |
 | `--font-size`, `--font-color`, `--font-file` | | Style overrides |
-| `--position` | | `top`, `center`, or `bottom` (overrides the preset default) |
+| `--position` | | `top`, `upper`, `center`, or `bottom` (overrides the preset default) |
+| `--highlight` | | Word to put in a color box (`pop` preset). Or wrap `[[word]]` in the text |
+| `--highlight-color` | `#5EEAD4` | Highlight box color as `#RRGGBB` |
+| `--no-audio` | | Strip audio from the output |
 
 Exactly one timing mode is required per caption: explicit (`start`/`end`) or interval (`every`/`duration`, optionally `count`).
 
@@ -206,5 +210,7 @@ Presets:
 - `caption-bar` — bottom, white text on a semi-transparent black bar
 - `centered-pill` — centered, padded box
 - `top-banner` — top, full-width bar
+- `hook` — large boxed text in the upper third
+- `pop` — bold all-caps white text with a black outline and optional `[[highlight]]` box
 
-Without `--font-file`, a system font is used (macOS: Arial/Helvetica). If none is found, pass `--font-file` explicitly.
+Without `--font-file`, a system font is used (Windows: Arial Black; macOS: Arial/Helvetica). If none is found, pass `--font-file` explicitly.

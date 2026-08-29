@@ -30,8 +30,12 @@ type Spec struct {
 	FontFile  string
 	FontSize  int
 	FontColor string
-	Position  string // "top", "center", or "bottom"; "" uses the preset default
+	Position  string // "top", "upper", "center", or "bottom"; "" uses the preset default
 	Fade      float64
+
+	// Pop-preset emphasis: wrap a word in a mint box. Also accepts [[word]] in Text.
+	Highlight      string
+	HighlightColor string
 }
 
 // IsInterval reports whether this spec uses interval (repeating) timing.
@@ -51,6 +55,8 @@ var presets = map[string]presetDefaults{
 	"caption-bar":   {FontSize: 42, FontColor: "white", BoxColor: "black@0.5", BoxBorder: 20, Position: "bottom"},
 	"centered-pill": {FontSize: 36, FontColor: "white", BoxColor: "black@0.55", BoxBorder: 24, Position: "center"},
 	"top-banner":    {FontSize: 40, FontColor: "white", BoxColor: "black@0.6", BoxBorder: 16, Position: "top"},
+	"hook":          {FontSize: 56, FontColor: "white", BoxColor: "black@0.72", BoxBorder: 22, Position: "upper"},
+	"pop":           {FontSize: 68, FontColor: "white", BoxColor: "", BoxBorder: 0, Position: "upper"},
 }
 
 // PresetNames returns the known preset names, for flag help / validation.
@@ -84,8 +90,8 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("caption %q: unknown preset %q", s.Text, s.Preset)
 		}
 	}
-	if s.Position != "" && s.Position != "top" && s.Position != "center" && s.Position != "bottom" {
-		return fmt.Errorf("caption %q: --position must be top, center, or bottom", s.Text)
+	if s.Position != "" && s.Position != "top" && s.Position != "center" && s.Position != "bottom" && s.Position != "upper" {
+		return fmt.Errorf("caption %q: --position must be top, upper, center, or bottom", s.Text)
 	}
 	return nil
 }
@@ -95,6 +101,12 @@ func (s Spec) Validate() error {
 // sidesteps filtergraph escaping entirely). Callers must call the returned
 // cleanup func once ffmpeg has run.
 func BuildFilter(specs []Spec, defaultFontFile string) (string, func(), error) {
+	return BuildFilterFor(specs, defaultFontFile, 0, 0)
+}
+
+// BuildFilterFor is BuildFilter with the video size so the pop preset's ASS
+// layout matches the frame.
+func BuildFilterFor(specs []Spec, defaultFontFile string, width, height int) (string, func(), error) {
 	var parts []string
 	var textFiles []string
 	cleanup := func() {
@@ -103,14 +115,37 @@ func BuildFilter(specs []Spec, defaultFontFile string) (string, func(), error) {
 		}
 	}
 
+	var popSpecs []Spec
+	var classic []Spec
 	for _, s := range specs {
+		if isPopPreset(s.Preset) {
+			popSpecs = append(popSpecs, s)
+		} else {
+			classic = append(classic, s)
+		}
+	}
+
+	if len(popSpecs) > 0 {
+		assPath, err := writeASSFile(popSpecs, width, height)
+		if err != nil {
+			cleanup()
+			return "", nil, err
+		}
+		textFiles = append(textFiles, assPath)
+		fontForASS := defaultFontFile
+		if popSpecs[0].FontFile != "" {
+			fontForASS = popSpecs[0].FontFile
+		}
+		parts = append(parts, assFilter(assPath, fontForASS))
+	}
+
+	for _, s := range classic {
 		textFile, err := writeTextFile(s.Text)
 		if err != nil {
 			cleanup()
 			return "", nil, err
 		}
 		textFiles = append(textFiles, textFile)
-
 		part, err := drawtextFilter(s, textFile, defaultFontFile)
 		if err != nil {
 			cleanup()
@@ -179,6 +214,8 @@ func drawtextFilter(s Spec, textFile, defaultFontFile string) (string, error) {
 		fmt.Sprintf("boxborderw=%d", preset.BoxBorder),
 		"x=" + x,
 		"y=" + y,
+		"text_align=C",
+		"line_spacing=12",
 		"enable=" + quoteExpr(win.enable),
 	}
 	if win.alpha != "" {
@@ -193,6 +230,8 @@ func positionExpr(position string) (x, y string) {
 	switch position {
 	case "top":
 		y = "40"
+	case "upper":
+		y = "h*0.16"
 	case "center":
 		y = "(h-th)/2"
 	default: // bottom
@@ -249,9 +288,9 @@ func num(f float64) string {
 // description (paths, mainly): backslashes and colons are the two
 // characters that would otherwise be misparsed.
 func escapeFilterValue(v string) string {
-	v = strings.ReplaceAll(v, `\`, `\\`)
+	v = strings.ReplaceAll(v, `\`, `/`)
 	v = strings.ReplaceAll(v, `:`, `\:`)
-	return v
+	return "'" + v + "'"
 }
 
 // quoteExpr wraps an ffmpeg expression in single quotes so the commas
@@ -268,6 +307,7 @@ type RenderOptions struct {
 	Filter     string
 	FFmpegPath string
 	Overwrite  bool
+	NoAudio    bool
 }
 
 // Render burns the caption filter chain into the video, copying audio
@@ -286,7 +326,9 @@ func Render(ctx context.Context, p *probe.Result, opts RenderOptions, runner ffm
 		"-preset", "fast",
 		"-pix_fmt", "yuv420p",
 	}
-	if p.HasAudio {
+	if opts.NoAudio {
+		args = append(args, "-an")
+	} else if p.HasAudio {
 		args = append(args, "-c:a", "copy")
 	}
 	args = append(args, "-progress", "pipe:1", opts.OutputPath)

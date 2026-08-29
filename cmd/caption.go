@@ -30,6 +30,9 @@ var (
 	flagCaptionFontCol  string
 	flagCaptionFontFile string
 	flagCaptionPosition string
+	flagCaptionHL       string
+	flagCaptionHLColor  string
+	flagCaptionNoAudio  bool
 )
 
 var captionCmd = &cobra.Command{
@@ -58,12 +61,15 @@ func init() {
 	captionCmd.Flags().Float64Var(&flagCaptionEvery, "every", 0, "Repeat interval in seconds (interval mode)")
 	captionCmd.Flags().Float64Var(&flagCaptionDuration, "duration", 0, "On-screen duration per occurrence, seconds (interval mode)")
 	captionCmd.Flags().IntVar(&flagCaptionCount, "count", 0, "Number of repeats for interval mode (0 = until the video ends)")
-	captionCmd.Flags().StringVar(&flagCaptionPreset, "preset", caption.DefaultPreset, "Style preset: caption-bar, centered-pill, or top-banner")
+	captionCmd.Flags().StringVar(&flagCaptionPreset, "preset", caption.DefaultPreset, "Style preset: caption-bar, centered-pill, top-banner, hook, or pop")
 	captionCmd.Flags().Float64Var(&flagCaptionFade, "fade", 0.3, "Fade in/out duration in seconds, 0 = no fade")
 	captionCmd.Flags().IntVar(&flagCaptionFontSize, "font-size", 0, "Font size override (0 = preset default)")
 	captionCmd.Flags().StringVar(&flagCaptionFontCol, "font-color", "", "Font color override (any ffmpeg color string)")
 	captionCmd.Flags().StringVar(&flagCaptionFontFile, "font-file", "", "Path to a .ttf/.otf font file (defaults to a system font)")
-	captionCmd.Flags().StringVar(&flagCaptionPosition, "position", "", "top, center, or bottom (0 = preset default)")
+	captionCmd.Flags().StringVar(&flagCaptionPosition, "position", "", "top, upper, center, or bottom (empty = preset default)")
+	captionCmd.Flags().StringVar(&flagCaptionHL, "highlight", "", "Word to emphasize with a color box (pop preset; or wrap [[word]] in --text)")
+	captionCmd.Flags().StringVar(&flagCaptionHLColor, "highlight-color", "", "Highlight box color as #RRGGBB (pop preset)")
+	captionCmd.Flags().BoolVar(&flagCaptionNoAudio, "no-audio", false, "Strip audio from the output")
 }
 
 type captionConfigFile struct {
@@ -81,11 +87,16 @@ type captionConfigItem struct {
 	Fade      float64 `json:"fade,omitempty"`
 	FontSize  int     `json:"font_size,omitempty"`
 	FontColor string  `json:"font_color,omitempty"`
-	FontFile  string  `json:"font_file,omitempty"`
-	Position  string  `json:"position,omitempty"`
+	FontFile       string  `json:"font_file,omitempty"`
+	Position       string  `json:"position,omitempty"`
+	Highlight      string  `json:"highlight,omitempty"`
+	HighlightColor string  `json:"highlight_color,omitempty"`
 }
 
 var defaultFontCandidates = []string{
+	`C:\Windows\Fonts\ariblk.ttf`,
+	`C:\Windows\Fonts\arialbd.ttf`,
+	`C:\Windows\Fonts\arial.ttf`,
 	"/System/Library/Fonts/Supplemental/Arial.ttf",
 	"/System/Library/Fonts/Helvetica.ttc",
 }
@@ -140,8 +151,10 @@ func runCaption(cmd *cobra.Command, args []string) error {
 			Fade:      flagCaptionFade,
 			FontSize:  flagCaptionFontSize,
 			FontColor: flagCaptionFontCol,
-			FontFile:  flagCaptionFontFile,
-			Position:  flagCaptionPosition,
+			FontFile:       flagCaptionFontFile,
+			Position:       flagCaptionPosition,
+			Highlight:      flagCaptionHL,
+			HighlightColor: flagCaptionHLColor,
 		})
 	}
 
@@ -181,8 +194,10 @@ func captionConfigItem2Spec(c captionConfigItem) caption.Spec {
 		Fade:      c.Fade,
 		FontSize:  c.FontSize,
 		FontColor: c.FontColor,
-		FontFile:  c.FontFile,
-		Position:  c.Position,
+		FontFile:       c.FontFile,
+		Position:       c.Position,
+		Highlight:      c.Highlight,
+		HighlightColor: c.HighlightColor,
 	}
 }
 
@@ -199,7 +214,7 @@ func captionPipeline(ctx context.Context, r Reporter, inputPath string, specs []
 	r.StageDone(captionStageProbe, time.Since(t0))
 
 	defaultFont := resolveDefaultFontFile()
-	filter, cleanup, err := caption.BuildFilter(specs, defaultFont)
+	filter, cleanup, err := caption.BuildFilterFor(specs, defaultFont, p.Width, p.Height)
 	if err != nil {
 		return err
 	}
@@ -214,6 +229,7 @@ func captionPipeline(ctx context.Context, r Reporter, inputPath string, specs []
 		Filter:     filter,
 		FFmpegPath: flagFFmpeg,
 		Overwrite:  flagOverwrite,
+		NoAudio:    flagCaptionNoAudio,
 	}
 	err = caption.Render(ctx, p, opts, runner, func(e ffmpeg.ProgressEvent) {
 		r.Progress(captionStageRender, e.OutTimeUS, p.Duration, e.FPS, e.Speed)

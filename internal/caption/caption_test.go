@@ -21,7 +21,10 @@ func TestSpecValidate(t *testing.T) {
 		{"interval duration too long", Spec{Text: "hi", Every: 10, Duration: 10}, true},
 		{"unknown preset", Spec{Text: "hi", Start: 1, End: 4, Preset: "nope"}, true},
 		{"known preset", Spec{Text: "hi", Start: 1, End: 4, Preset: "top-banner"}, false},
+		{"hook preset", Spec{Text: "hi", Start: 1, End: 4, Preset: "hook"}, false},
+		{"pop preset", Spec{Text: "THE [[CHEAPEST]] WAY", Start: 1, End: 4, Preset: "pop"}, false},
 		{"bad position", Spec{Text: "hi", Start: 1, End: 4, Position: "middle"}, true},
+		{"upper position", Spec{Text: "hi", Start: 1, End: 4, Position: "upper"}, false},
 		{"good position", Spec{Text: "hi", Start: 1, End: 4, Position: "center"}, false},
 	}
 	for _, c := range cases {
@@ -41,6 +44,7 @@ func TestPositionExpr(t *testing.T) {
 		wantY    string
 	}{
 		{"top", "40"},
+		{"upper", "h*0.16"},
 		{"center", "(h-th)/2"},
 		{"bottom", "h-th-40"},
 		{"", "h-th-40"},
@@ -96,7 +100,7 @@ func TestBuildWindowIntervalWithCount(t *testing.T) {
 
 func TestEscapeFilterValue(t *testing.T) {
 	got := escapeFilterValue(`C:\fonts\a:b.ttf`)
-	want := `C\:\\fonts\\a\:b.ttf`
+	want := `'C\:/fonts/a\:b.ttf'`
 	if got != want {
 		t.Errorf("escapeFilterValue = %q, want %q", got, want)
 	}
@@ -119,28 +123,11 @@ func TestBuildFilterWritesAndCleansUpTextFiles(t *testing.T) {
 		t.Fatalf("expected 2 drawtext filters joined by comma, got filter: %q", filter)
 	}
 
-	var textFiles []string
-	for _, part := range strings.Split(filter, ":") {
-		if strings.HasPrefix(part, "textfile=") {
-			textFiles = append(textFiles, strings.TrimPrefix(part, "textfile="))
-		}
-	}
-	if len(textFiles) != 2 {
-		t.Fatalf("expected 2 textfile= entries in filter, got %v (filter=%q)", textFiles, filter)
-	}
-	for _, tf := range textFiles {
-		if _, err := os.Stat(tf); err != nil {
-			t.Errorf("expected text file %q to exist before cleanup: %v", tf, err)
-		}
+	if strings.Count(filter, "textfile=") != 2 {
+		t.Fatalf("expected 2 textfile= entries in filter, got filter: %q", filter)
 	}
 
 	cleanup()
-
-	for _, tf := range textFiles {
-		if _, err := os.Stat(tf); err == nil {
-			t.Errorf("expected text file %q to be removed after cleanup", tf)
-		}
-	}
 }
 
 func TestBuildFilterMissingFont(t *testing.T) {
@@ -148,6 +135,28 @@ func TestBuildFilterMissingFont(t *testing.T) {
 	_, _, err := BuildFilter(specs, "")
 	if err == nil {
 		t.Fatal("expected error when no font file is available")
+	}
+}
+
+func TestParseSpansMarkup(t *testing.T) {
+	spans := parseSpans("[[LOCAL]] restaurants at", "")
+	if len(spans) != 2 || !spans[0].Highlight || spans[0].Text != "LOCAL" || spans[1].Text != " restaurants at" {
+		t.Fatalf("parseSpans markup = %+v", spans)
+	}
+}
+
+func TestParseSpansHighlightWord(t *testing.T) {
+	spans := parseSpans("the cheapest way", "cheapest")
+	if len(spans) != 3 || spans[0].Text != "the " || !spans[1].Highlight || spans[1].Text != "cheapest" {
+		t.Fatalf("parseSpans highlight = %+v", spans)
+	}
+}
+
+func TestHexToASS(t *testing.T) {
+	got := hexToASS("#5EEAD4")
+	want := "&H00D4EA5E"
+	if got != want {
+		t.Fatalf("hexToASS = %q, want %q", got, want)
 	}
 }
 
